@@ -28,11 +28,13 @@
 #include "TextureMTL.h"
 #include "../PixelFormatUtils.h"
 #include "base/Configuration.h"
+#include "platform/RenderView.h"
 
 NS_AX_BACKEND_BEGIN
 
 id<MTLTexture> UtilsMTL::_defaultColorAttachmentTexture        = nil;
 id<MTLTexture> UtilsMTL::_defaultDepthStencilAttachmentTexture = nil;
+NSUInteger UtilsMTL::_defaultRenderTargetSampleCount          = 0;
 
 namespace
 {
@@ -45,6 +47,22 @@ MTLPixelFormat getSupportedDepthStencilFormat()
         pixelFormat = MTLPixelFormatDepth24Unorm_Stencil8;
 #endif
     return pixelFormat;
+}
+
+NSUInteger getSupportedSampleCount(CAMetalLayer* metalLayer)
+{
+    const auto requestedSampleCount = ax::RenderView::getGfxContextAttrs().multisamplingCount;
+    if (requestedSampleCount <= 1 || metalLayer == nil || metalLayer.device == nil)
+        return 1;
+
+    const id<MTLDevice> device = metalLayer.device;
+    if (requestedSampleCount >= 8 && [device supportsTextureSampleCount:8])
+        return 8;
+    if (requestedSampleCount >= 4 && [device supportsTextureSampleCount:4])
+        return 4;
+    if (requestedSampleCount >= 2 && [device supportsTextureSampleCount:2])
+        return 2;
+    return 1;
 }
 }
 
@@ -144,17 +162,28 @@ MTLPixelFormat UtilsMTL::getDefaultDepthStencilAttachmentPixelFormat()
     return getSupportedDepthStencilFormat();
 }
 
+NSUInteger UtilsMTL::getDefaultRenderTargetSampleCount()
+{
+    if (_defaultRenderTargetSampleCount == 0)
+        _defaultRenderTargetSampleCount = getSupportedSampleCount(DriverMTL::getCAMetalLayer());
+    return _defaultRenderTargetSampleCount;
+}
+
+id<MTLTexture> UtilsMTL::getDefaultColorAttachmentTexture()
+{
+    if (getDefaultRenderTargetSampleCount() <= 1)
+        return nil;
+    if (!_defaultColorAttachmentTexture)
+        _defaultColorAttachmentTexture = UtilsMTL::createColorAttachmentTexture();
+    return _defaultColorAttachmentTexture;
+}
+
 id<MTLTexture> UtilsMTL::getDefaultDepthStencilTexture()
 {
     if (!_defaultDepthStencilAttachmentTexture)
         _defaultDepthStencilAttachmentTexture = UtilsMTL::createDepthStencilAttachmentTexture();
 
     return _defaultDepthStencilAttachmentTexture;
-}
-
-void UtilsMTL::updateDefaultColorAttachmentTexture(id<MTLTexture> texture)
-{
-    UtilsMTL::_defaultColorAttachmentTexture = texture;
 }
 
 MTLPixelFormat UtilsMTL::toMTLPixelFormat(PixelFormat textureFormat)
@@ -169,17 +198,49 @@ MTLPixelFormat UtilsMTL::toMTLPixelFormat(PixelFormat textureFormat)
 void UtilsMTL::resizeDefaultAttachmentTexture(std::size_t width, std::size_t height)
 {
     [backend::DriverMTL::getCAMetalLayer() setDrawableSize:CGSizeMake(width, height)];
+    _defaultRenderTargetSampleCount = getSupportedSampleCount(DriverMTL::getCAMetalLayer());
+    [_defaultColorAttachmentTexture release];
+    _defaultColorAttachmentTexture = UtilsMTL::createColorAttachmentTexture();
     [_defaultDepthStencilAttachmentTexture release];
     _defaultDepthStencilAttachmentTexture = UtilsMTL::createDepthStencilAttachmentTexture();
+}
+
+id<MTLTexture> UtilsMTL::createColorAttachmentTexture()
+{
+    if (getDefaultRenderTargetSampleCount() <= 1)
+        return nil;
+
+    auto CAMetalLayer = DriverMTL::getCAMetalLayer();
+    if (CAMetalLayer == nil || CAMetalLayer.device == nil)
+        return nil;
+
+    MTLTextureDescriptor* textureDescriptor = [[MTLTextureDescriptor alloc] init];
+    textureDescriptor.textureType           = MTLTextureType2DMultisample;
+    textureDescriptor.width                 = CAMetalLayer.drawableSize.width;
+    textureDescriptor.height                = CAMetalLayer.drawableSize.height;
+    textureDescriptor.pixelFormat           = UtilsMTL::getDefaultColorAttachmentPixelFormat();
+    textureDescriptor.sampleCount           = getDefaultRenderTargetSampleCount();
+    textureDescriptor.resourceOptions       = MTLResourceStorageModePrivate;
+    textureDescriptor.usage                 = MTLTextureUsageRenderTarget;
+    auto ret                                = [CAMetalLayer.device newTextureWithDescriptor:textureDescriptor];
+    [textureDescriptor release];
+
+    return ret;
 }
 
 id<MTLTexture> UtilsMTL::createDepthStencilAttachmentTexture()
 {
     auto CAMetalLayer                       = DriverMTL::getCAMetalLayer();
+    if (CAMetalLayer == nil || CAMetalLayer.device == nil)
+        return nil;
+
     MTLTextureDescriptor* textureDescriptor = [[MTLTextureDescriptor alloc] init];
+    if (getDefaultRenderTargetSampleCount() > 1)
+        textureDescriptor.textureType = MTLTextureType2DMultisample;
     textureDescriptor.width                 = CAMetalLayer.drawableSize.width;
     textureDescriptor.height                = CAMetalLayer.drawableSize.height;
     textureDescriptor.pixelFormat           = s_textureFormats[(int)PixelFormat::D24S8].fmt;
+    textureDescriptor.sampleCount           = getDefaultRenderTargetSampleCount();
     textureDescriptor.resourceOptions       = MTLResourceStorageModePrivate;
     textureDescriptor.usage                 = MTLTextureUsageRenderTarget;
     auto ret                                = [CAMetalLayer.device newTextureWithDescriptor:textureDescriptor];

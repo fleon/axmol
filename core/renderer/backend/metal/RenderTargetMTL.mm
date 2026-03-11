@@ -28,6 +28,19 @@ static MTLStoreAction getStoreAction(const RenderPassDescriptor& params, TargetB
     return MTLStoreActionStore;
 }
 
+static MTLStoreAction getMSAAStoreAction(const RenderPassDescriptor& params, TargetBufferFlags buffer)
+{
+    const auto baseStoreAction = getStoreAction(params, buffer);
+    if (baseStoreAction == MTLStoreActionDontCare)
+        return MTLStoreActionDontCare;
+
+#if defined(__IPHONE_10_0) || defined(__MAC_10_12)
+    if (@available(iOS 10.0, macOS 10.12, *))
+        return MTLStoreActionStoreAndMultisampleResolve;
+#endif
+    return MTLStoreActionMultisampleResolve;
+}
+
 RenderTargetMTL::RenderTargetMTL(bool defaultRenderTarget) : RenderTarget(defaultRenderTarget) {}
 RenderTargetMTL::~RenderTargetMTL() {}
 
@@ -56,24 +69,22 @@ void RenderTargetMTL::applyRenderPassAttachments(const RenderPassDescriptor& par
             descriptor.colorAttachments[i].clearColor =
                 MTLClearColorMake(params.clearColorValue[0], params.clearColorValue[1], params.clearColorValue[2],
                                 params.clearColorValue[3]);
-#if 0
-        if (multisampledColor[i]) {
-            // We're rendering into our temporary MSAA texture and doing an automatic resolve.
-            // We should not be attempting to load anything into the MSAA texture.
-            assert(descriptor.colorAttachments[i].loadAction != MTLLoadActionLoad);
 
-            descriptor.colorAttachments[i].texture = multisampledColor[i];
-            descriptor.colorAttachments[i].level = 0;
-            descriptor.colorAttachments[i].slice = 0;
-            const bool discard = any(discardFlags & getMRTColorFlag(i));
-            if (!discard) {
-                descriptor.colorAttachments[i].resolveTexture = attachment.texture;
-                descriptor.colorAttachments[i].resolveLevel = attachment.level;
-                descriptor.colorAttachments[i].resolveSlice = attachment.layer;
-                descriptor.colorAttachments[i].storeAction = MTLStoreActionMultisampleResolve;
+        if (isDefaultRenderTarget() && i == 0)
+        {
+            auto msaaColorAttachment = UtilsMTL::getDefaultColorAttachmentTexture();
+            if (msaaColorAttachment != nil)
+            {
+                descriptor.colorAttachments[i].texture     = msaaColorAttachment;
+                descriptor.colorAttachments[i].level       = 0;
+                descriptor.colorAttachments[i].storeAction = getMSAAStoreAction(params, MRTColorFlag);
+                if (descriptor.colorAttachments[i].storeAction != MTLStoreActionDontCare)
+                {
+                    descriptor.colorAttachments[i].resolveTexture = attachment.texture;
+                    descriptor.colorAttachments[i].resolveLevel   = attachment.level;
+                }
             }
         }
-#endif
     }
 
     // Sets descriptor depth and stencil params, should match RenderTargetMTL::chooseAttachmentFormat
@@ -102,25 +113,6 @@ void RenderTargetMTL::applyRenderPassAttachments(const RenderPassDescriptor& par
                 descriptor.stencilAttachment.clearStencil = params.clearStencilValue;
         }
     }
-
-#if 0
-    if (multisampledDepth) {
-        // We're rendering into our temporary MSAA texture and doing an automatic resolve.
-        // We should not be attempting to load anything into the MSAA texture.
-        assert(descriptor.depthAttachment.loadAction != MTLLoadActionLoad);
-
-        descriptor.depthAttachment.texture = multisampledDepth;
-        descriptor.depthAttachment.level = 0;
-        descriptor.depthAttachment.slice = 0;
-        const bool discard = any(discardFlags & TargetBufferFlags::DEPTH);
-        if (!discard) {
-            descriptor.depthAttachment.resolveTexture = depthAttachment.texture;
-            descriptor.depthAttachment.resolveLevel = depthAttachment.level;
-            descriptor.depthAttachment.resolveSlice = depthAttachment.layer;
-            descriptor.depthAttachment.storeAction = MTLStoreActionMultisampleResolve;
-        }
-    }
-#endif
 
     _dirtyFlags = TargetBufferFlags::NONE;
 }
@@ -176,6 +168,22 @@ PixelFormat RenderTargetMTL::getStencilAttachmentPixelFormat() const
     if (_stencil)
         return _stencil.texture->getTextureFormat();
     return PixelFormat::NONE;
+}
+
+NSUInteger RenderTargetMTL::getSampleCount() const
+{
+    if (isDefaultRenderTarget())
+        return UtilsMTL::getDefaultRenderTargetSampleCount();
+
+    auto attachment = getColorAttachment(0);
+    if (attachment.texture != nil)
+        return attachment.texture.sampleCount;
+
+    auto depthAttachment = getDepthAttachment();
+    if (depthAttachment.texture != nil)
+        return depthAttachment.texture.sampleCount;
+
+    return 1;
 }
 
 NS_AX_BACKEND_END

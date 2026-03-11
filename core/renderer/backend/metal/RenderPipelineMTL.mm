@@ -172,6 +172,7 @@ void RenderPipelineMTL::update(const RenderTarget* renderTarget, const PipelineD
         backend::PixelFormat colorAttachment[MAX_COLOR_ATTCHMENT];
         backend::PixelFormat depthAttachment;
         backend::PixelFormat stencilAttachment;
+        uint32_t sampleCount;
         bool blendEnabled;
         unsigned int writeMask;
         unsigned int rgbBlendOperation;
@@ -185,12 +186,14 @@ void RenderPipelineMTL::update(const RenderTarget* renderTarget, const PipelineD
     memset(&hashMe, 0, sizeof(hashMe));
     const auto& blendDescriptor = pipelineDescriptor.blendDescriptor;
     chooseAttachmentFormat(renderTarget, _colorAttachmentsFormat, _depthAttachmentFormat, _stencilAttachmentFormat);
+    _sampleCount               = static_cast<const RenderTargetMTL*>(renderTarget)->getSampleCount();
     auto program              = static_cast<ProgramMTL*>(pipelineDescriptor.programState->getProgram());
     hashMe.vertexShaderHash   = program->getVertexShader()->getHashValue();
     hashMe.fragmentShaderHash = program->getFragmentShader()->getHashValue();
     memcpy(&hashMe.colorAttachment, &_colorAttachmentsFormat, sizeof(_colorAttachmentsFormat));
     hashMe.depthAttachment             = _depthAttachmentFormat;
     hashMe.stencilAttachment           = _stencilAttachmentFormat;
+    hashMe.sampleCount                 = static_cast<uint32_t>(_sampleCount);
     hashMe.blendEnabled                = blendDescriptor.blendEnabled;
     hashMe.writeMask                   = (unsigned int)blendDescriptor.writeMask;
     hashMe.rgbBlendOperation           = (unsigned int)blendDescriptor.rgbBlendOperation;
@@ -229,6 +232,7 @@ void RenderPipelineMTL::update(const RenderTarget* renderTarget, const PipelineD
     setVertexLayout(_mtlRenderPipelineDescriptor, pipelineDescriptor);
 
     setBlendStateAndFormat(pipelineDescriptor.blendDescriptor);
+    _mtlRenderPipelineDescriptor.sampleCount = _sampleCount;
 
     NSError* error          = nil;
     _mtlRenderPipelineState = [_mtlDevice newRenderPipelineStateWithDescriptor:_mtlRenderPipelineDescriptor

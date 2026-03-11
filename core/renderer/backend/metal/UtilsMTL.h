@@ -52,16 +52,19 @@ struct UtilsMTL
      */
     static void initGPUTextureFormats();
 
-    /**
-     * Update default color attachment texture.
-     * @param texture Specifies the texture to be setted to the color attachemnt.
-     */
-    static void updateDefaultColorAttachmentTexture(id<MTLTexture> texture);
     static void resizeDefaultAttachmentTexture(std::size_t width, std::size_t height);
 
     static MTLPixelFormat getDefaultColorAttachmentPixelFormat();
 
     static MTLPixelFormat getDefaultDepthStencilAttachmentPixelFormat();
+
+    static NSUInteger getDefaultRenderTargetSampleCount();
+
+    /**
+     * Get the default multisampled color texture used for onscreen resolve.
+     * Returns nil when multisampling is disabled.
+     */
+    static id<MTLTexture> getDefaultColorAttachmentTexture();
 
     /**
      * Get the default combined depth and stencil texture.
@@ -92,10 +95,12 @@ struct UtilsMTL
     static void swizzleImage(unsigned char* image, std::size_t width, std::size_t height, MTLPixelFormat format);
 
 private:
+    static id<MTLTexture> createColorAttachmentTexture();
     static id<MTLTexture> createDepthStencilAttachmentTexture();
 
     static id<MTLTexture> _defaultColorAttachmentTexture;
     static id<MTLTexture> _defaultDepthStencilAttachmentTexture;
+    static NSUInteger _defaultRenderTargetSampleCount;
 };
 
 // end of _metal group

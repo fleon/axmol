@@ -75,6 +75,7 @@ private:
     PixelFormat _colorAttachmentsFormat[MAX_COLOR_ATTCHMENT]  = {PixelFormat::NONE};
     PixelFormat _depthAttachmentFormat                        = PixelFormat::NONE;
     PixelFormat _stencilAttachmentFormat                      = PixelFormat::NONE;
+    NSUInteger _sampleCount                                   = 1;
 
     tsl::robin_map<uint32_t, id<MTLRenderPipelineState>> _mtlStateCache;
 };

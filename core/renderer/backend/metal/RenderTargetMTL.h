@@ -29,12 +29,7 @@ public:
     PixelFormat getColorAttachmentPixelFormat(int index) const;
     PixelFormat getDepthAttachmentPixelFormat() const;
     PixelFormat getStencilAttachmentPixelFormat() const;
-
-public:
-    // "Sidecar" textures used to implement automatic MSAA resolve.
-    // id<MTLTexture> multisampledColor[MRT::TARGET_COUNT] = { 0 };
-    // id<MTLTexture> multisampledDepth = nil;
-    // MetalContext*, DriverMTL*
+    NSUInteger getSampleCount() const;
 };
 
 NS_AX_BACKEND_END
