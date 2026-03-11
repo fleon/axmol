@@ -929,7 +929,9 @@ void DrawNode::_drawPolygon(const Vec2* verts,
     }
     if (outline)
     {
-        float width = thickness / properties.factor;
+        // The generated outline geometry expands equally on both sides of the
+        // centerline, so convert design stroke width to half-width in points.
+        float width = thickness / (2 * properties.factor);
         if (thickness != 1.0f || properties.drawOrder)
         {
             for (unsigned int i = 1; i < (count); i++)
@@ -1607,8 +1609,7 @@ void DrawNode::applyTransform(const Vec2* from, Vec2* to, unsigned int count)
 
 void DrawNode::Properties::setDefaultValues()
 {
-    auto fac = Director::getInstance()->getContentScaleFactor();
-    factor   = fac;
+    factor = 1.0f;
     
     scale     = Vec2(1.0f, 1.0f);
     center    = Vec2(0.0f, 0.0f);

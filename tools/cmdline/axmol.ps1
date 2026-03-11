@@ -156,7 +156,7 @@ function axmol_deploy() {
         }
     }
     elseif ($TARGET_OS -eq 'ios' -or $TARGET_OS -eq 'tvos') {
-        if ($options.a -eq 'x64') {
+        if ($options.sdk -and $options.sdk.StartsWith('sim')) {
             $ios_app_path = Join-Path $BUILD_DIR "bin/$cmake_target/$optimize_flag/$cmake_target.app"
             $ios_bundle_id = get_bundle_id($ios_app_path)
 
@@ -164,7 +164,9 @@ function axmol_deploy() {
             $ios_simulator_id, $simulator_info = find_simulator_id($TARGET_OS)
 
             println "Booting $simulator_info ..."
-            xcrun simctl boot $ios_simulator_id '--arch=x86_64'
+            xcrun simctl boot $ios_simulator_id
+            xcrun simctl bootstatus $ios_simulator_id -b
+            open -a Simulator --args -CurrentDeviceUDID $ios_simulator_id
             println "Installing $ios_app_path ..."
             xcrun simctl install $ios_simulator_id $ios_app_path
             println "Deploy $cmake_target done: $ios_bundle_id"
