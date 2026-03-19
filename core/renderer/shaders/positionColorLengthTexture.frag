@@ -10,9 +10,8 @@ layout(location = SV_Target0) out vec4 FragColor;
 
 void main()
 {
-// #if defined GL_OES_standard_derivatives
-// FragColor = v_color*smoothstep(0.0, length(fwidth(v_texCoord)), 1.0 - length(v_texCoord));
-// #else
-    FragColor = v_color*step(0.0, 1.0 - length(v_texCoord));
-// #endif
+    float edgeDistance = length(v_texCoord);
+    float aaWidth = max(fwidth(edgeDistance), 1.0 / 1024.0);
+    float coverage = 1.0 - smoothstep(1.0 - aaWidth, 1.0, edgeDistance);
+    FragColor = v_color * coverage;
 }
