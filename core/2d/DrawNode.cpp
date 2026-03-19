@@ -24,6 +24,7 @@
  */
 
 #include "2d/DrawNode.h"
+#include <algorithm>
 #include <stddef.h>
 #include "base/Types.h"
 #include "base/EventType.h"
@@ -77,6 +78,80 @@ static V2F_C4B_T2F* expandBufferAndGetPointer(axstd::pod_vector<V2F_C4B_T2F>& bu
     size_t oldSize = buffer.size();
     buffer.expand(count);
     return buffer.data() + oldSize;
+}
+
+static float fillAntialiasFringeWidth(const DrawNode* drawNode)
+{
+    float pixelScale = 1.0f;
+    if (auto* director = Director::getInstance())
+    {
+        if (const auto* renderView = director->getRenderView())
+        {
+            pixelScale = std::max(1.0f, std::min(renderView->getScaleX(), renderView->getScaleY()));
+        }
+    }
+
+    return 1.0f / (pixelScale * std::max(drawNode->properties.factor, 0.0001f));
+}
+
+static void appendConvexFillFringe(V2F_C4B_T2F_Triangle* triangles,
+                                   int& ii,
+                                   const axstd::pod_vector<Vec2>& vertices,
+                                   unsigned int count,
+                                   const Color4F& fillColor,
+                                   float fringeWidth)
+{
+    if (count < 3 || fringeWidth <= 0.0f || fillColor.a <= 0.0f)
+        return;
+
+    struct ExtrudeVerts
+    {
+        Vec2 offset;
+        Vec2 normal;
+    };
+
+    std::vector<ExtrudeVerts> extrude(count);
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        const Vec2& v0 = vertices[(i + count - 1) % count];
+        const Vec2& v1 = vertices[i];
+        const Vec2& v2 = vertices[(i + 1) % count];
+
+        Vec2 n1 = ((v1 - v0).getPerp()).getNormalized();
+        Vec2 n2 = ((v2 - v1).getPerp()).getNormalized();
+
+        float denom = Vec2::dot(n1, n2) + 1.0f;
+        if (std::abs(denom) < 0.001f)
+        {
+            extrude[i] = {n2, n2};
+            continue;
+        }
+
+        extrude[i] = {(n1 + n2) * (1.0f / denom), n2};
+    }
+
+    const Color4F transparent(fillColor.r, fillColor.g, fillColor.b, 0.0f);
+    for (unsigned int i = 0; i < count; ++i)
+    {
+        const unsigned int j = (i + 1) % count;
+
+        const Vec2& inner0 = vertices[i];
+        const Vec2& inner1 = vertices[j];
+        const Vec2 outer0 = inner0 + extrude[i].offset * fringeWidth;
+        const Vec2 outer1 = inner1 + extrude[j].offset * fringeWidth;
+
+        triangles[ii++] = {
+            {inner0, fillColor, Vec2::ZERO},
+            {inner1, fillColor, Vec2::ZERO},
+            {outer1, transparent, Vec2::ZERO},
+        };
+
+        triangles[ii++] = {
+            {inner0, fillColor, Vec2::ZERO},
+            {outer0, transparent, Vec2::ZERO},
+            {outer1, transparent, Vec2::ZERO},
+        };
+    }
 }
 
 DrawNode::DrawNode()
@@ -848,6 +923,12 @@ void DrawNode::_drawPolygon(const Vec2* verts,
     bool outline = (thickness != 0.0f);
 
     auto _vertices = _transform(verts, count, closedPolygon);
+    const bool shapeClosed = count > 2 && _vertices[0] == _vertices[count - 1];
+    const unsigned int boundaryCount = shapeClosed ? count - 1 : count;
+    const bool polygonConvex = shapeClosed && boundaryCount >= 3 && (isconvex || isConvex(_vertices.data(), boundaryCount));
+    const float aaFringeWidth = fillAntialiasFringeWidth(this);
+    const bool hasVisibleBorder = outline && borderColor.a > 0.0f && thickness > aaFringeWidth;
+    const bool addFillFringe = fillColor.a > 0.0f && polygonConvex && !hasVisibleBorder;
 
     std::vector<V2F_C4B_T2F_Triangle> triangleList;
 
@@ -902,6 +983,11 @@ void DrawNode::_drawPolygon(const Vec2* verts,
         }
     }
 
+    if (addFillFringe)
+    {
+        vertex_count += 2 * boundaryCount;
+    }
+
     vertex_count *= 3;
 
     auto triangles = reinterpret_cast<V2F_C4B_T2F_Triangle*>(expandBufferAndGetPointer(_triangles, vertex_count));
@@ -927,6 +1013,7 @@ void DrawNode::_drawPolygon(const Vec2* verts,
             };
         }
     }
+
     if (outline)
     {
         // The generated outline geometry expands equally on both sides of the
@@ -1032,6 +1119,13 @@ void DrawNode::_drawPolygon(const Vec2* verts,
                 triangles[ii++] = {{inner0, borderColor, -n0}, {outer0, borderColor, n0}, {outer1, borderColor, n0}};
             }
         }
+    }
+
+    if (addFillFringe)
+    {
+        auto fringeVertices = _vertices;
+        fringeVertices.resize(boundaryCount);
+        appendConvexFillFringe(triangles, ii, fringeVertices, boundaryCount, fillColor, aaFringeWidth);
     }
 }
 
